@@ -56,9 +56,23 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
-  const authorization = req.headers.authorization || "";
-  if (authorization !== `Bearer ${process.env.GPT_ACTION_KEY}`) {
-    return unauthorized(res);
+  const expectedKey = String(process.env.GPT_ACTION_KEY || "").trim();
+const authorization = String(req.headers.authorization || "").trim();
+const customKey = String(req.headers["x-btw-api-key"] || "").trim();
+const bearerKey = authorization.replace(/^Bearer\s+/i, "").trim();
+
+if (
+  !expectedKey ||
+  (bearerKey !== expectedKey && customKey !== expectedKey)
+) {
+  return res.status(401).json({
+    error: "Unauthorized.",
+    diagnostic: {
+      gpt_action_key_configured: Boolean(expectedKey),
+      authorization_header_received: Boolean(authorization),
+      custom_header_received: Boolean(customKey)
+    }
+  });
   }
 
   let body;
