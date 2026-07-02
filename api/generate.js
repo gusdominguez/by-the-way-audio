@@ -1,4 +1,3 @@
-\
 const SPEECHGEN_URL = "https://speechgen.io/index.php?r=api/text";
 const ALLOWED_VOICES = new Set(["Arnold", "Andrew"]);
 
