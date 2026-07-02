@@ -1,0 +1,74 @@
+openapi: 3.1.0
+info:
+  title: By The Way Aviation Audio API
+  version: 1.0.0
+  description: >
+    Secure proxy that generates ICAO English audio through SpeechGen.
+    Use Arnold for ATC and Andrew for Pilot.
+
+servers:
+  - url: https://REPLACE-WITH-YOUR-VERCEL-URL
+
+paths:
+  /api/generate:
+    post:
+      operationId: generateAviationAudio
+      summary: Generate one MP3 file from an ICAO script.
+      description: >
+        Submit a script of no more than 2,000 characters. Use dialog tags exactly
+        as <dialog voice='Arnold'> for ATC and <dialog voice='Andrew'> for Pilot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - filename
+                - script
+              properties:
+                filename:
+                  type: string
+                  description: Desired MP3 filename, for example TEST_07_SITUATION_01.mp3.
+                script:
+                  type: string
+                  description: >
+                    ICAO dialogue with SpeechGen dialog tags. Use only Arnold for ATC
+                    and Andrew for Pilot.
+      responses:
+        "200":
+          description: Audio created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filename:
+                    type: string
+                  audio_url:
+                    type: string
+                    format: uri
+                  duration_seconds:
+                    type: number
+                  format:
+                    type: string
+                  cost:
+                    type: number
+                  remaining_balance:
+                    type: string
+        "400":
+          description: Invalid request.
+        "401":
+          description: Unauthorized.
+        "502":
+          description: SpeechGen error.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+
+security:
+  - bearerAuth: []

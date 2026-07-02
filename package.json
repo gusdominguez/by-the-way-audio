@@ -1,0 +1,9 @@
+{
+  "name": "by-the-way-audio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Secure SpeechGen proxy for By The Way ICAO audio generation.",
+  "engines": {
+    "node": ">=20"
+  }
+}
