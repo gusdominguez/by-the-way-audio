@@ -1,5 +1,79 @@
+import { put } from "@vercel/blob";
+import ffmpegPath from "ffmpeg-static";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { readFile, unlink, writeFile } from "fs/promises";
+import os from "os";
+import path from "path";
+import crypto from "crypto";
+
 const SPEECHGEN_URL = "https://speechgen.io/index.php?r=api/text";
 const ALLOWED_VOICES = new Set(["Arnold", "Andrew"]);
+const execFileAsync = promisify(execFile);
+
+function buildVhfFilter(intensity) {
+  const amount = intensity / 100;
+  const lowpass = Math.round(3400 - amount * 500);
+  const noiseAmplitude = (0.0025 + amount * 0.012).toFixed(4);
+
+  return [
+    `[0:a]highpass=f=300,lowpass=f=${lowpass},` +
+      "acompressor=threshold=0.08:ratio=3:attack=5:release=80:makeup=1.2," +
+      "aresample=44100,pan=mono|c0=c0[voice]",
+    `anoisesrc=color=white:amplitude=${noiseAmplitude}:sample_rate=44100,` +
+      "highpass=f=300,lowpass=f=3400[noise]",
+    "[voice][noise]amix=inputs=2:duration=first:dropout_transition=0," +
+      "alimiter=limit=0.95,aresample=44100,pan=mono|c0=c0[out]"
+  ].join(";");
+}
+
+async function applyVhfEffect(sourceUrl, filename, intensity) {
+  const temporaryId = crypto.randomUUID();
+  const sourcePath = path.join(os.tmpdir(), `${temporaryId}-source.mp3`);
+  const processedPath = path.join(os.tmpdir(), `${temporaryId}-processed.mp3`);
+
+  try {
+    const sourceResponse = await fetch(sourceUrl);
+    if (!sourceResponse.ok) {
+      throw new Error(`Could not download SpeechGen audio (${sourceResponse.status}).`);
+    }
+
+    await writeFile(sourcePath, Buffer.from(await sourceResponse.arrayBuffer()));
+
+    await execFileAsync(ffmpegPath, [
+      "-y",
+      "-i",
+      sourcePath,
+      "-filter_complex",
+      buildVhfFilter(intensity),
+      "-map",
+      "[out]",
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "96k",
+      "-ar",
+      "44100",
+      "-ac",
+      "1",
+      processedPath
+    ]);
+
+    const processedAudio = await readFile(processedPath);
+    const blob = await put(`aviation-audio/${filename}`, processedAudio, {
+      access: "public",
+      addRandomSuffix: true,
+      contentType: "audio/mpeg"
+    });
+
+    return blob.url;
+  } finally {
+    await Promise.all([
+      unlink(sourcePath).catch(() => {}),
+      unlink(processedPath).catch(() => {})
+    ]);
+  }
+}
 
 function unauthorized(res) {
   return res.status(401).json({ error: "Unauthorized." });
@@ -85,6 +159,8 @@ if (
   const script = normaliseScript(body.script);
   const filename = String(body.filename || "by_the_way_audio.mp3")
     .replace(/[^a-zA-Z0-9._-]/g, "_");
+  const vhfEffect = body.vhf_effect === undefined ? true : body.vhf_effect !== false;
+  const vhfIntensity = body.vhf_intensity === undefined ? 75 : Number(body.vhf_intensity);
 
   if (!script) {
     return res.status(400).json({ error: "script is required." });
@@ -94,6 +170,10 @@ if (
     return res.status(400).json({
       error: "SpeechGen /text accepts up to 2,000 characters. Split this into smaller audio tracks."
     });
+  }
+
+  if (!Number.isFinite(vhfIntensity) || vhfIntensity < 0 || vhfIntensity > 100) {
+    return res.status(400).json({ error: "vhf_intensity must be a number from 0 to 100." });
   }
 
   const validation = validateDialogVoices(script);
@@ -152,13 +232,27 @@ if (
     });
   }
 
+  let audioUrl = result.file;
+  if (vhfEffect) {
+    try {
+      audioUrl = await applyVhfEffect(result.file, filename, vhfIntensity);
+    } catch (error) {
+      return res.status(502).json({
+        error: "SpeechGen audio was generated, but VHF processing failed.",
+        detail: error.message
+      });
+    }
+  }
+
   return res.status(200).json({
     filename,
-    audio_url: result.file,
+    audio_url: audioUrl,
     duration_seconds: result.duration,
     format: result.format,
     cost: result.cost,
     remaining_balance: result.balans,
+    vhf_applied: vhfEffect,
+    vhf_intensity: vhfEffect ? vhfIntensity : 0,
     voices: {
       atc: "Arnold",
       pilot: "Andrew"
