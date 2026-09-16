@@ -5,5 +5,9 @@
   "description": "Secure SpeechGen proxy for By The Way ICAO audio generation.",
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0",
+    "ffmpeg-static": "^5.3.0"
   }
 }
